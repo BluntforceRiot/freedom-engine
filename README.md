@@ -23,6 +23,19 @@ npm run dev
 
 Then open the local Vite URL shown in the terminal.
 
+## Play Online
+
+Once GitHub Pages finishes deploying, Red, White & Boomtown will be playable at:
+
+https://bluntforceriot.github.io/freedom-engine/
+
+Repository:
+
+https://github.com/BluntforceRiot/freedom-engine
+
+This is a static browser demo. Players do not need to download the repository
+for normal play.
+
 ## Build
 
 ```sh
@@ -40,6 +53,12 @@ Browser smoke test:
 ```sh
 npm run playtest
 ```
+
+## GitHub Pages
+
+This repo includes `.github/workflows/deploy.yml`. In GitHub repository
+settings, set Pages to deploy from GitHub Actions, then push to `main` or run
+the workflow manually.
 
 ## How To Play
 
