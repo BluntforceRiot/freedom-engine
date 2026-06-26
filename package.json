@@ -1,0 +1,22 @@
+{
+  "name": "freedom-engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "playtest": "node scripts/playtest-browser.mjs"
+  },
+  "dependencies": {
+    "three": "^0.183.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/three": "^0.185.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.16"
+  }
+}
