@@ -83,6 +83,50 @@ canvas {
   display: block;
 }
 
+#scene-root {
+  background:
+    linear-gradient(135deg, rgba(63, 120, 72, 0.45), rgba(39, 78, 112, 0.32)),
+    #183323;
+}
+
+.sr-only {
+  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.loading-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 3;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  color: #2a1a0d;
+  background: var(--paper);
+  font-weight: 850;
+}
+
+.game-shell.is-map-ready .loading-card {
+  display: none;
+}
+
+.game-shell:not(.is-started) .hud,
+.game-shell:not(.is-started) .build-panel,
+.game-shell:not(.is-started) .selection-panel {
+  display: none;
+}
+
 .hud {
   position: absolute;
   top: 0.75rem;
@@ -108,6 +152,7 @@ canvas {
 .phase-panel,
 .policy-panel,
 .feed-panel,
+.advisor-panel,
 .build-panel,
 .selection-panel,
 .finale-panel {
@@ -120,6 +165,7 @@ canvas {
 .feed-panel h2,
 .build-panel h2,
 .policy-panel h2,
+.advisor-panel h2,
 .selection-panel h2,
 .finale-panel h2 {
   margin: 0;
@@ -135,6 +181,7 @@ canvas {
 .feed-panel h2,
 .build-panel h2,
 .policy-panel h2,
+.advisor-panel h2,
 .selection-panel h2,
 .finale-panel h2 {
   color: #ffe5a0;
@@ -197,6 +244,42 @@ canvas {
   max-height: calc(100vh - 1.5rem);
 }
 
+.advisor-panel {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.clipboard {
+  border-radius: 7px;
+  padding: 0.55rem;
+  color: #2a1a0d;
+  background: var(--paper);
+}
+
+.clipboard b {
+  display: block;
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  font-size: 0.74rem;
+}
+
+.clipboard ol,
+.nudge-list {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.clipboard li,
+.nudge-list li {
+  margin: 0.18rem 0;
+  font-size: 0.72rem;
+  line-height: 1.28;
+}
+
+.nudge-list {
+  color: #e6eef8;
+}
+
 .build-panel {
   position: absolute;
   left: 0.75rem;
@@ -219,6 +302,13 @@ canvas {
 .category-tabs button {
   padding: 0.38rem 0.48rem;
   font-size: 0.72rem;
+}
+
+.placement-notice {
+  margin: 0;
+  color: #ffe6a8;
+  font-size: 0.72rem;
+  line-height: 1.25;
 }
 
 .category-tabs button.active,
@@ -253,14 +343,31 @@ canvas {
 .tool-grid span {
   color: #d5e1ec;
   font-size: 0.66rem;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.tool-grid small {
+  display: block;
+  margin-top: 0.25rem;
+  color: #aecaeb;
+  font-size: 0.62rem;
+  line-height: 1.2;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .selection-panel {
   position: absolute;
-  right: 0.75rem;
+  right: 385px;
   bottom: 0.75rem;
   z-index: 6;
   width: 340px;
+  max-height: 27vh;
+  overflow: auto;
 }
 
 .selection-panel dl,
@@ -370,8 +477,8 @@ canvas {
   place-items: center;
   padding: 2rem;
   background:
-    linear-gradient(180deg, rgba(7, 12, 22, 0.25), rgba(7, 12, 22, 0.82)),
-    radial-gradient(circle at 70% 20%, rgba(245, 195, 90, 0.22), transparent 24rem);
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 92px),
+    linear-gradient(180deg, rgba(7, 12, 22, 0.98), rgba(11, 22, 38, 0.98));
 }
 
 .title-card,
@@ -382,6 +489,15 @@ canvas {
   padding: 1.4rem;
   background: rgba(13, 24, 44, 0.92);
   box-shadow: 0 22px 80px rgba(0, 0, 0, 0.45);
+}
+
+.eyebrow {
+  margin: 0 0 0.55rem;
+  color: #f7c95d;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .title-card h1,
@@ -437,6 +553,158 @@ canvas {
   margin: 0;
   color: #3b2b1c;
   font-size: 0.82rem;
+}
+
+.title-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.title-howto {
+  display: none;
+  margin-top: 1rem;
+  border-radius: 8px;
+  padding: 0.85rem;
+  color: #2a1a0d;
+  background: var(--paper);
+}
+
+.title-screen.show-howto .title-howto {
+  display: block;
+}
+
+.title-howto h3,
+.title-howto ol {
+  margin: 0;
+}
+
+.title-howto ol {
+  margin-top: 0.35rem;
+  padding-left: 1.2rem;
+}
+
+.title-howto li {
+  margin: 0.2rem 0;
+}
+
+.phase-banner {
+  position: absolute;
+  left: 50%;
+  top: 0.75rem;
+  z-index: 12;
+  width: min(520px, 44vw);
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.phase-banner article {
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  padding: 0.75rem 2.3rem 0.75rem 0.85rem;
+  color: #2a1a0d;
+  background: var(--paper);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.32);
+}
+
+.phase-banner button {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  padding: 0.25rem 0.42rem;
+  color: #2a1a0d;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.phase-banner strong {
+  display: block;
+  font-size: 0.92rem;
+  text-transform: uppercase;
+}
+
+.phase-banner p {
+  margin: 0.25rem 0;
+  font-size: 0.78rem;
+}
+
+.phase-banner ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.phase-banner li {
+  border-radius: 999px;
+  padding: 0.22rem 0.4rem;
+  background: rgba(41, 70, 111, 0.14);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.hover-tooltip {
+  position: absolute;
+  z-index: 14;
+  width: 240px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  padding: 0.6rem;
+  color: #f6ead3;
+  background: rgba(13, 24, 44, 0.94);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.34);
+  pointer-events: none;
+}
+
+.hover-tooltip b,
+.hover-tooltip span,
+.hover-tooltip small {
+  display: block;
+}
+
+.hover-tooltip span,
+.hover-tooltip small {
+  color: #b8cce2;
+  font-size: 0.68rem;
+}
+
+.hover-tooltip p {
+  margin: 0.35rem 0;
+  font-size: 0.72rem;
+  line-height: 1.28;
+}
+
+.breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(96px, 1fr));
+  gap: 0.45rem;
+  margin: 0.85rem 0;
+}
+
+.breakdown-grid article {
+  border-radius: 7px;
+  padding: 0.55rem;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.breakdown-grid span {
+  display: block;
+  color: #bcd0e6;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+}
+
+.breakdown-grid b {
+  display: block;
+  margin-top: 0.15rem;
+  color: #fff1c9;
+}
+
+.copy-status {
+  color: #d9e8f8;
+  font-size: 0.78rem;
 }
 
 .award-list {

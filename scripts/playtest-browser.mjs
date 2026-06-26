@@ -17,39 +17,72 @@ page.on("console", (message) => {
 page.on("pageerror", (error) => errors.push(error.message));
 
 await page.goto(baseUrl, { waitUntil: "networkidle" });
-await page.screenshot({ path: path.join(outputDir, "freedom-engine-title.png"), fullPage: true });
-await page.getByRole("button", { name: "Start Game" }).click();
-await page.waitForTimeout(300);
-await page.screenshot({ path: path.join(outputDir, "freedom-engine-dashboard.png"), fullPage: true });
+await assertNoHorizontalOverflow();
+await expectVisibleText("Red, White & Boomtown");
+await expectHidden("#build-panel");
+await expectHidden("#stats-panel");
+await page.screenshot({ path: path.join(outputDir, "red-white-boomtown-title.png"), fullPage: true });
+
+await page.getByRole("button", { name: "HOW THIS NONSENSE WORKS" }).click();
+await expectVisibleText("Mayor's Clipboard");
+await page.screenshot({ path: path.join(outputDir, "red-white-boomtown-placement-tutorial.png"), fullPage: true });
+
+await page.getByRole("button", { name: "START THE FOURTH" }).click();
+await page.waitForTimeout(1000);
+await expectVisibleText("Civic Panic Meter");
+await expectVisibleText("Build Menu");
+await assertMapReady();
+await assertCanvasMounted();
+await page.screenshot({ path: path.join(outputDir, "red-white-boomtown-dashboard.png"), fullPage: true });
+
+await pick("Food & Vendors", "hotdog");
+await place([970, 260]);
+await expectVisibleText("Needs nearby path.");
 
 await buildFestival();
-await page.screenshot({ path: path.join(outputDir, "freedom-engine-gameplay-built.png"), fullPage: true });
+await page.screenshot({ path: path.join(outputDir, "red-white-boomtown-built-festival.png"), fullPage: true });
 
-for (let i = 0; i < 5; i += 1) {
+await page.getByRole("button", { name: /Advance Phase/ }).first().click();
+await page.waitForTimeout(450);
+await expectVisibleText("Afternoon Crowd Surge");
+await page.screenshot({ path: path.join(outputDir, "red-white-boomtown-phase-banner.png"), fullPage: true });
+
+for (let i = 0; i < 4; i += 1) {
   await page.getByRole("button", { name: /Advance Phase|Resolve Finale|Show Recap/ }).first().click();
-  await page.waitForTimeout(i === 4 ? 900 : 450);
-  if (i === 3) {
-    await page.screenshot({ path: path.join(outputDir, "freedom-engine-finale.png"), fullPage: true });
+  await page.waitForTimeout(i === 3 ? 900 : 450);
+  if (i === 2) {
+    await page.screenshot({ path: path.join(outputDir, "red-white-boomtown-finale.png"), fullPage: true });
   }
 }
 
-await page.screenshot({ path: path.join(outputDir, "freedom-engine-endgame.png"), fullPage: true });
+await page.screenshot({ path: path.join(outputDir, "red-white-boomtown-endgame.png"), fullPage: true });
+await expectVisibleText("Liberty Park Gazette Final Edition");
+await page.getByRole("button", { name: "Copy Recap" }).click();
+const recap = await page.evaluate(() => document.body.dataset.lastRecap ?? "");
+
+await page.setViewportSize({ width: 1280, height: 720 });
+await assertNoHorizontalOverflow();
+await page.setViewportSize({ width: 1440, height: 900 });
+await assertNoHorizontalOverflow();
 
 const body = await page.locator("body").innerText();
 const result = {
   baseUrl,
   errors,
-  titleVisible: await page.getByText("Freedom Engine").first().isVisible(),
+  titleVisible: body.includes("Red, White & Boomtown"),
+  hudHiddenBeforeStart: true,
+  mapReady: await page.locator("#scene-root[data-map-ready='true']").count(),
   endVisible: await page.locator(".end-card").isVisible(),
-  hasGazette: body.includes("GAZETTE FINAL EDITION"),
+  hasGazette: body.includes("GAZETTE FINAL EDITION") || body.includes("Gazette Final Edition"),
   hasAward: (await page.locator(".award-list span").count()) > 0,
+  hasRecap: recap.length > 20,
   statText: await page.locator("#stats-panel").innerText(),
 };
 
 console.log(JSON.stringify(result, null, 2));
 await browser.close();
 
-if (result.errors.length || !result.titleVisible || !result.endVisible || !result.hasGazette || !result.hasAward) {
+if (result.errors.length || !result.titleVisible || !result.endVisible || !result.hasGazette || !result.hasAward || !result.hasRecap) {
   process.exit(1);
 }
 
@@ -67,11 +100,11 @@ async function buildFestival() {
     await place(point);
   }
 
-  await pick("Food", "hotdog");
+  await pick("Food & Vendors", "hotdog");
   await place([545, 325]);
-  await pick("Food", "lemonade");
+  await pick("Food & Vendors", "lemonade");
   await place([610, 350]);
-  await pick("Food", "funnelCake");
+  await pick("Food & Vendors", "funnelCake");
   await place([690, 380]);
   await pick("Services", "bathroom");
   await place([735, 410]);
@@ -81,9 +114,9 @@ async function buildFestival() {
   await place([860, 470]);
   await pick("Services", "fireMarshal");
   await place([920, 500]);
-  await pick("Civic", "paradeStaging");
+  await pick("Parade", "paradeStaging");
   await place([500, 430]);
-  await pick("Civic", "paradeRoute");
+  await pick("Parade", "paradeRoute");
   for (const point of [
     [560, 455],
     [620, 480],
@@ -91,7 +124,7 @@ async function buildFestival() {
   ]) {
     await place(point);
   }
-  await pick("Civic", "veteransFloat");
+  await pick("Parade", "veteransFloat");
   await place([740, 530]);
   await pick("Carnival", "ferrisWheel");
   await place([820, 360]);
@@ -113,5 +146,34 @@ async function pick(category, toolId) {
 
 async function place([x, y]) {
   await page.mouse.click(x, y);
-  await page.waitForTimeout(70);
+  await page.waitForTimeout(80);
+}
+
+async function expectVisibleText(text) {
+  const bodyText = await page.locator("body").innerText();
+  if (!bodyText.toLowerCase().includes(text.toLowerCase())) throw new Error(`Expected visible text: ${text}`);
+}
+
+async function expectHidden(selector) {
+  const visible = await page.locator(selector).isVisible().catch(() => false);
+  if (visible) throw new Error(`Expected hidden before start: ${selector}`);
+}
+
+async function assertMapReady() {
+  const ready = await page.locator("#scene-root[data-map-ready='true']").count();
+  if (!ready) throw new Error("Map-ready marker missing.");
+}
+
+async function assertCanvasMounted() {
+  const canvasState = await page.evaluate(() => {
+    const canvas = document.querySelector("canvas");
+    if (!canvas) return null;
+    return { width: canvas.width, height: canvas.height, visible: canvas.clientWidth > 0 && canvas.clientHeight > 0 };
+  });
+  if (!canvasState?.visible || canvasState.width < 640 || canvasState.height < 360) throw new Error("Canvas is not mounted at a playable size.");
+}
+
+async function assertNoHorizontalOverflow() {
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  if (overflow > 1) throw new Error(`Horizontal overflow detected: ${overflow}`);
 }

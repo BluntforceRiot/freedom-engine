@@ -7,6 +7,7 @@ coverage/
 *.pid
 .tmp-*
 Instructions.txt
+Feedback*.txt
 .DS_Store
 Thumbs.db
 BUILD_RECEIPT_FREEDOM_ENGINE.md

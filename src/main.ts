@@ -2,11 +2,13 @@ import "./styles.css";
 import * as THREE from "three";
 
 const STORAGE_KEY = "freedom-engine.save.v1";
+const GAME_TITLE = "Red, White & Boomtown";
+const GAME_SUBTITLE = "Build the Fourth. Feed the crowd. Keep the sky from suing you.";
 const TILE_SIZE = 1;
 const MAP_W = 24;
 const MAP_H = 18;
 
-type Category = "paths" | "vendors" | "civic" | "rides" | "services" | "fireworks" | "tools";
+type Category = "paths" | "vendors" | "civic" | "services" | "parade" | "rides" | "fireworks" | "tools";
 type PhaseId = "setup" | "afternoon" | "parade" | "evening" | "finale" | "recap";
 type WeatherId = "clear" | "hot" | "windy" | "dry" | "rain";
 type ToolId = BuildingId | "bulldoze";
@@ -156,10 +158,18 @@ type GameState = {
   selectedTile?: { x: number; y: number };
   policies: Policies;
   bulletins: Bulletin[];
+  placementNotice: string;
+  phaseBanner?: PhaseBanner;
   awards: string[];
   finaleOutcome?: FinaleOutcome;
   tick: number;
   nextUid: number;
+};
+
+type PhaseBanner = {
+  title: string;
+  line: string;
+  warnings: string[];
 };
 
 type FinaleOutcome = {
@@ -621,7 +631,7 @@ const defs: BuildingDef[] = [
   {
     id: "paradeStaging",
     name: "Parade Staging",
-    category: "civic",
+    category: "parade",
     cost: 750,
     upkeep: 24,
     color: 0x7b4a2b,
@@ -635,7 +645,7 @@ const defs: BuildingDef[] = [
   {
     id: "paradeRoute",
     name: "Parade Route",
-    category: "civic",
+    category: "parade",
     cost: 80,
     upkeep: 0,
     color: 0xb4383f,
@@ -649,7 +659,7 @@ const defs: BuildingDef[] = [
   {
     id: "veteransFloat",
     name: "Veterans Float",
-    category: "civic",
+    category: "parade",
     cost: 620,
     upkeep: 18,
     color: 0x2f5f9e,
@@ -662,7 +672,7 @@ const defs: BuildingDef[] = [
   {
     id: "fireTruckFloat",
     name: "Fire Truck Float",
-    category: "civic",
+    category: "parade",
     cost: 720,
     upkeep: 22,
     color: 0xc53932,
@@ -675,7 +685,7 @@ const defs: BuildingDef[] = [
   {
     id: "classicCars",
     name: "Classic Car Line",
-    category: "civic",
+    category: "parade",
     cost: 660,
     upkeep: 20,
     color: 0x6c82b5,
@@ -932,10 +942,11 @@ const defById = new Map(defs.map((def) => [def.id, def]));
 
 const categoryLabels: Record<Category, string> = {
   paths: "Paths",
-  vendors: "Food",
-  civic: "Civic",
-  rides: "Carnival",
+  vendors: "Food & Vendors",
+  civic: "Civic Pride",
   services: "Services",
+  parade: "Parade",
+  rides: "Carnival",
   fireworks: "Fireworks",
   tools: "Tools",
 };
@@ -992,6 +1003,8 @@ let tileMeshes: THREE.Mesh[] = [];
 let crowdDots: CrowdDot[] = [];
 let selectedTileMesh: THREE.Mesh;
 let hoveredTile: { x: number; y: number } | undefined;
+let hoverScreen: { x: number; y: number } | undefined;
+let mapReady = false;
 let lastTime = performance.now();
 let finaleStart = 0;
 
@@ -1016,6 +1029,7 @@ function createNewGame(): GameState {
     selectedCategory: "paths",
     policies: { ...defaultPolicies },
     bulletins: [firstBulletin],
+    placementNotice: "Mayor's Clipboard: start with paths, then food, bathrooms, trash, parade pieces, and fireworks support.",
     awards: [],
     tick: 0,
     nextUid: 100,
@@ -1052,12 +1066,14 @@ function starterLayout(): PlacedBuilding[] {
 
 function bootstrap(): void {
   app.innerHTML = `
-    <div class="game-shell">
-      <div id="scene-root"></div>
+    <div id="game-shell" class="game-shell">
+      <div id="scene-root"><span id="map-ready-marker" class="sr-only">Liberty Park terrain loading</span></div>
+      <div id="loading-card" class="loading-card">Setting up Liberty Park... checking fireworks permit...</div>
       <div class="hud">
         <section id="phase-panel" class="panel phase-panel"></section>
         <section id="stats-panel" class="stats-grid"></section>
         <div class="right-stack">
+          <section id="advisor-panel" class="panel advisor-panel"></section>
           <section id="policy-panel" class="panel policy-panel"></section>
           <section id="feed-panel" class="panel feed-panel"></section>
           <section id="finale-panel" class="panel finale-panel"></section>
@@ -1065,6 +1081,8 @@ function bootstrap(): void {
       </div>
       <section id="build-panel" class="panel build-panel"></section>
       <section id="selection-panel" class="panel selection-panel"></section>
+      <div id="phase-banner" class="phase-banner hidden"></div>
+      <div id="hover-tooltip" class="hover-tooltip hidden"></div>
       <div id="title-screen" class="title-screen"></div>
       <div id="end-screen" class="end-screen hidden"></div>
       <div id="toast" class="toast hidden"></div>
@@ -1084,7 +1102,7 @@ function setupScene(): void {
   camera = new THREE.OrthographicCamera(-13, 13, 8, -8, 0.1, 100);
   camera.position.set(11, 13, 12);
   camera.lookAt(0, 0, 0);
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
@@ -1114,6 +1132,13 @@ function setupScene(): void {
   renderer.domElement.addEventListener("pointermove", onPointerMove);
   renderer.domElement.addEventListener("click", onCanvasClick);
   window.addEventListener("resize", onResize);
+  rebuildScene();
+  renderer.render(scene, camera);
+  mapReady = true;
+  root.dataset.mapReady = "true";
+  const marker = document.querySelector<HTMLSpanElement>("#map-ready-marker");
+  if (marker) marker.textContent = "Liberty Park terrain ready";
+  root.classList.add("map-ready");
 }
 
 function createTerrain(): void {
@@ -1161,6 +1186,12 @@ function bindUi(): void {
     if (action === "advance") advancePhase();
     if (action === "save") saveGame();
     if (action === "load") loadGame();
+    if (action === "howto") document.querySelector("#title-screen")?.classList.toggle("show-howto");
+    if (action === "dismissPhase") {
+      state.phaseBanner = undefined;
+      renderPhaseBanner();
+    }
+    if (action === "copyRecap") copyRecap();
     if (action === "category") {
       state.selectedCategory = target.dataset.category as Category;
       renderBuildPanel();
@@ -1194,6 +1225,7 @@ function onResize(): void {
 }
 
 function onPointerMove(event: PointerEvent): void {
+  hoverScreen = { x: event.clientX, y: event.clientY };
   updatePointer(event);
   const tile = pickTile();
   hoveredTile = tile;
@@ -1205,6 +1237,7 @@ function onPointerMove(event: PointerEvent): void {
   }
   state.selectedTile = tile;
   renderSelectionPanel();
+  renderHoverTooltip();
 }
 
 function onCanvasClick(event: MouseEvent): void {
@@ -1238,10 +1271,16 @@ function pickTile(): { x: number; y: number } | undefined {
 }
 
 function startGame(): void {
+  if (!mapReady) {
+    showToast("Setting up Liberty Park...");
+    return;
+  }
   state.started = true;
   document.querySelector("#title-screen")?.classList.add("hidden");
   addBulletin("Radio WFEG Begins Blanket Coverage", "Build paths, feed people, respect bathroom math, and keep the finale out of the incident file.", "Morning Setup");
+  rebuildScene();
   renderAll();
+  renderer.render(scene, camera);
 }
 
 function restartGame(): void {
@@ -1250,6 +1289,7 @@ function restartGame(): void {
   rebuildScene();
   document.querySelector("#end-screen")?.classList.add("hidden");
   document.querySelector("#title-screen")?.classList.remove("hidden");
+  state.phaseBanner = undefined;
   renderAll();
 }
 
@@ -1266,6 +1306,7 @@ function loadGame(): void {
   }
   try {
     state = JSON.parse(raw) as GameState;
+    state.placementNotice ??= "Loaded festival plan. The clipboard is judging quietly.";
     rebuildScene();
     document.querySelector("#title-screen")?.classList.toggle("hidden", state.started);
     document.querySelector("#end-screen")?.classList.toggle("hidden", !state.ended);
@@ -1279,22 +1320,26 @@ function loadGame(): void {
 function placeBuilding(defId: BuildingId, x: number, y: number): void {
   const def = defById.get(defId);
   if (!def) return;
+  if (!inBounds(x, y)) {
+    failPlacement("Cannot place on water.");
+    return;
+  }
   if (occupied(x, y)) {
-    showToast("That tile is already spoken for.");
+    failPlacement("Too close to another object. That tile is already spoken for.");
     return;
   }
   if (def.unique && state.buildings.some((building) => building.defId === def.id)) {
-    showToast(`${def.name} is unique for this scenario.`);
+    failPlacement(`${def.name} is unique for this scenario.`);
     return;
   }
   if (def.requiresPath && !nearbyPath(x, y)) {
-    showToast(`${def.name} needs a nearby path.`);
+    failPlacement("Needs nearby path.");
     return;
   }
   const setupDiscount = currentPhase().id === "setup" ? 0.86 : 1;
   const cost = Math.round(def.cost * setupDiscount);
   if (state.stats.money < cost) {
-    showToast("The town treasurer says no.");
+    failPlacement("Not enough money.");
     return;
   }
   state.stats.money -= cost;
@@ -1302,6 +1347,7 @@ function placeBuilding(defId: BuildingId, x: number, y: number): void {
   state.buildings.push({ uid: state.nextUid++, defId, x, y });
   addBuildingMesh(state.buildings[state.buildings.length - 1]);
   if (def.category === "fireworks") renderRiskRadius();
+  state.placementNotice = `${def.name} placed. The committee can point at a thing.`;
   showToast(`${def.name} placed.`);
   renderAll();
 }
@@ -1309,7 +1355,7 @@ function placeBuilding(defId: BuildingId, x: number, y: number): void {
 function bulldoze(x: number, y: number): void {
   const index = state.buildings.findIndex((building) => building.x === x && building.y === y);
   if (index < 0) {
-    showToast("Nothing to bulldoze there.");
+    failPlacement("Nothing to bulldoze there.");
     return;
   }
   const [removed] = state.buildings.splice(index, 1);
@@ -1319,6 +1365,17 @@ function bulldoze(x: number, y: number): void {
   addBulletin("Grounds Crew Reverses A Decision", `${def?.name ?? "Something"} removed. Refund: $${refund}.`, currentPhase().title);
   rebuildScene();
   renderAll();
+}
+
+function failPlacement(message: string): void {
+  state.placementNotice = message;
+  showToast(message);
+  renderBuildPanel();
+  renderSelectionPanel();
+}
+
+function inBounds(x: number, y: number): boolean {
+  return x >= 0 && x < MAP_W && y >= 0 && y < MAP_H;
 }
 
 function occupied(x: number, y: number): boolean {
@@ -1347,8 +1404,10 @@ function advancePhase(): void {
     renderAll();
     return;
   }
+  const before = { ...state.stats };
   runPhaseSimulation(phase.id);
   state.phaseIndex += 1;
+  state.phaseBanner = makePhaseBanner(currentPhase(), before);
   if (currentPhase().id === "finale") {
     startFinaleShow();
   }
@@ -1642,19 +1701,16 @@ function endingArchetype(score: number): string {
 function makeAwards(score: number): string[] {
   const awards: string[] = [];
   const s = state.stats;
-  if (s.joy > 75 && s.safety > 70 && score > 70) awards.push("Best Small-Town Fourth");
-  if (s.spectacle > 78) awards.push("Pyro Legend");
-  if (s.trash < 22) awards.push("Cleanest Festival");
-  if (s.pride > 76 && s.flow > 55) awards.push("Parade Perfection");
-  if (state.revenue > 8500) awards.push("Funnel Cake Economy");
-  if (s.safety > 82) awards.push("Safety Saint");
-  if (s.flow > 78) awards.push("Crowd Flow Wizard");
-  if (s.bathrooms < 20) awards.push("Porta-Potty Prophet");
-  if (s.marshal > 78 && s.fireRisk < 34) awards.push("Fire Marshal's Favorite");
-  if (s.chaos > 80 || s.fireRisk > 80) awards.push("Insurance Nightmare");
-  if (s.trash > 78) awards.push("Trashpocalypse");
-  if (s.fireRisk > 86) awards.push("Sparkpocalypse");
-  return awards.length ? awards.slice(0, 6) : ["Respectable Civic Machine"];
+  if (s.joy > 75 && s.safety > 70 && score > 70) awards.push("Best Use of Questionable Budget");
+  if (state.revenue > 8500) awards.push("Most Patriotic Vendor Density");
+  if (s.bathrooms < 20) awards.push("Bathroom Infrastructure Hero");
+  if (s.marshal > 78 && s.fireRisk < 34) awards.push("Fire Marshal Whisperer");
+  if (s.trash < 28) awards.push("Trash Containment Medal");
+  if (s.pride > 76 && s.flow > 55) awards.push("Parade Logistics Goblin");
+  if (s.fireRisk < 42 && score > 60) awards.push("Sky Accountant Survivor");
+  if (s.spectacle > 78) awards.push("Finale Showboat Ribbon");
+  if (s.chaos > 80 || s.fireRisk > 80) awards.push("Insurance Adjuster Summoning Circle");
+  return awards.length ? awards.slice(0, 6) : ["Civically Acceptable Clipboard"];
 }
 
 function bestAndWorst(): { best: string; worst: string } {
@@ -1698,6 +1754,33 @@ function currentPhase(): { id: PhaseId; title: string; body: string } {
   return phases[state.phaseIndex] ?? phases[phases.length - 1];
 }
 
+function makePhaseBanner(phase: { id: PhaseId; title: string; body: string }, before: Stats): PhaseBanner {
+  const lines: Record<PhaseId, string> = {
+    setup: "The committee has found a clipboard and therefore believes it is ready.",
+    afternoon: "The first wave of citizens has entered Liberty Park with sunscreen, opinions, and suspicious cooler confidence.",
+    parade: "The parade has begun, which means civic pride is up and traffic cones are making enemies.",
+    evening: "Dinner rush arrives with sticky hands, big expectations, and bold bathroom assumptions.",
+    finale: "The build phase is over. The sky accountant has arrived with a clipboard.",
+    recap: "The Gazette has opinions, and several of them are unfortunately fair.",
+  };
+  const deltas = [
+    deltaLine("Crowd", state.stats.crowd - before.crowd, "visitors"),
+    deltaLine("Money", state.stats.money - before.money, "budget"),
+    deltaLine("Trash", state.stats.trash - before.trash, "pressure"),
+    deltaLine("Bathrooms", state.stats.bathrooms - before.bathrooms, "pressure"),
+    deltaLine("Fire Risk", state.stats.fireRisk - before.fireRisk, "risk"),
+    deltaLine("Flow", state.stats.flow - before.flow, "flow"),
+  ].filter(Boolean) as string[];
+  const warnings = deltas.length ? deltas.slice(0, 3) : advisorNudges().slice(0, 2);
+  return { title: phase.title, line: lines[phase.id], warnings };
+}
+
+function deltaLine(label: string, delta: number, noun: string): string | undefined {
+  if (Math.abs(delta) < 4) return undefined;
+  const direction = delta > 0 ? "up" : "down";
+  return `${label} ${direction} ${Math.abs(Math.round(delta)).toLocaleString()} ${noun}`;
+}
+
 function rebuildScene(): void {
   buildingGroup.clear();
   overlayGroup.clear();
@@ -1715,6 +1798,8 @@ function addBuildingMesh(building: PlacedBuilding): void {
   const mat = new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.72 });
   const accent = new THREE.MeshStandardMaterial({ color: def.accent, roughness: 0.58 });
   const baseHeight = def.height;
+  const halo = makeCategoryHalo(def.category);
+  group.add(halo);
   if (def.shape === "route" || def.shape === "zone") {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.92, baseHeight, 0.92), mat);
     mesh.position.y = baseHeight / 2 + 0.02;
@@ -1731,6 +1816,13 @@ function addBuildingMesh(building: PlacedBuilding): void {
     roof.position.y = baseHeight + 0.16;
     roof.rotation.y = Math.PI / 4;
     group.add(box, roof);
+    if (def.category === "vendors") {
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.72), mat);
+      stripe.position.set(-0.16, baseHeight + 0.28, 0);
+      const stripe2 = stripe.clone();
+      stripe2.position.x = 0.16;
+      group.add(stripe, stripe2);
+    }
   } else if (def.shape === "tower") {
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, baseHeight, 8), mat);
     post.position.y = baseHeight / 2;
@@ -1751,8 +1843,18 @@ function addBuildingMesh(building: PlacedBuilding): void {
     const sign = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.12, 0.12), accent);
     sign.position.set(0, baseHeight + 0.08, -0.36);
     group.add(box, sign);
+    if (def.category === "services") {
+      const badge = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.08), accent);
+      badge.position.set(0.24, baseHeight + 0.2, -0.36);
+      group.add(badge);
+    }
+    if (def.category === "fireworks") {
+      const rack = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.08, 0.18), accent);
+      rack.position.set(0, baseHeight + 0.22, 0.22);
+      group.add(rack);
+    }
   }
-  const label = makeLabel(shortName(def.name), def.accent);
+  const label = makeLabel(`${categoryIcon(def.category)} ${shortName(def.name)}`, def.accent);
   label.position.set(0, Math.max(0.38, baseHeight + 0.28), 0);
   group.add(label);
   group.traverse((object) => {
@@ -1762,6 +1864,20 @@ function addBuildingMesh(building: PlacedBuilding): void {
     }
   });
   buildingGroup.add(group);
+}
+
+function makeCategoryHalo(category: Category): THREE.Mesh {
+  const geometry = new THREE.RingGeometry(0.48, 0.56, 28);
+  const material = new THREE.MeshBasicMaterial({
+    color: categoryColor(category),
+    transparent: true,
+    opacity: 0.34,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.035;
+  return mesh;
 }
 
 function renderRiskRadius(): void {
@@ -1926,31 +2042,76 @@ function spawnFirework(): void {
 }
 
 function renderAll(): void {
+  updateShellState();
   renderTitle();
   renderPhasePanel();
   renderStats();
+  renderAdvisorPanel();
   renderPolicyPanel();
   renderFeed();
   renderBuildPanel();
   renderSelectionPanel();
   renderFinalePanel();
+  renderPhaseBanner();
+}
+
+function updateShellState(): void {
+  const shell = document.querySelector<HTMLDivElement>("#game-shell");
+  if (!shell) return;
+  shell.classList.toggle("is-started", state.started);
+  shell.classList.toggle("is-ended", state.ended);
+  shell.classList.toggle("is-map-ready", mapReady);
+}
+
+function renderPhaseBanner(): void {
+  const el = document.querySelector<HTMLDivElement>("#phase-banner");
+  if (!el) return;
+  const banner = state.phaseBanner;
+  if (!banner || !state.started || state.ended) {
+    el.classList.add("hidden");
+    return;
+  }
+  el.innerHTML = `
+    <article>
+      <button aria-label="Dismiss phase banner" data-action="dismissPhase">X</button>
+      <strong>${banner.title}</strong>
+      <p>${banner.line}</p>
+      <ul>${banner.warnings.map((warning) => `<li>${warning}</li>`).join("")}</ul>
+    </article>
+  `;
+  el.classList.remove("hidden");
 }
 
 function renderTitle(): void {
   const el = document.querySelector<HTMLDivElement>("#title-screen");
   if (!el || state.started) return;
+  const hasSave = Boolean(localStorage.getItem(STORAGE_KEY));
   el.innerHTML = `
     <article class="title-card">
-      <h1>Freedom Engine</h1>
-      <h2>Build the Fourth. Survive the Fourth.</h2>
-      <p>Design a one-day civic celebration machine: vendors, parade routes, trash service, bathrooms, fire crews, crowd flow, fireworks viewing, and all the invisible logistics behind visible joy.</p>
+      <p class="eyebrow">Liberty Park Committee Simulator</p>
+      <h1>${GAME_TITLE}</h1>
+      <h2>${GAME_SUBTITLE}</h2>
+      <p>Design a one-day Fourth of July festival in Liberty Park. Place vendors, paths, parade pieces, bathrooms, trash service, safety, parking, and fireworks infrastructure. Keep the crowd happy, the fire marshal calm, and the finale loud enough to be remembered for mostly legal reasons.</p>
       <div class="title-grid">
-        <article><h3>Build</h3><p>Place paths, stands, rides, services, parade route pieces, and abstract fireworks infrastructure.</p></article>
-        <article><h3>Manage</h3><p>Choose policies for vendors, fireworks, security, services, parade ambition, and budget priorities.</p></article>
-        <article><h3>Survive</h3><p>Advance through crowd surge, parade hour, evening rush, and a finale scorecard from the local paper.</p></article>
+        <article><h3>Build</h3><p>Paths, stands, rides, parade pieces, civic services, and abstract fireworks infrastructure.</p></article>
+        <article><h3>Balance</h3><p>Money, trash, bathrooms, safety, fire risk, flow, traffic, spectacle, and chaos.</p></article>
+        <article><h3>Finish</h3><p>Reach the finale, survive the Gazette, and earn a scorecard worth bragging about.</p></article>
       </div>
-      <button class="primary" data-action="start">Start Game</button>
-      <button data-action="load">Load Local Save</button>
+      <div class="title-actions">
+        <button class="primary" data-action="start">START THE FOURTH</button>
+        ${hasSave ? `<button data-action="load">LOAD SAVED FESTIVAL</button>` : ""}
+        <button data-action="howto">HOW THIS NONSENSE WORKS</button>
+      </div>
+      <div class="title-howto">
+        <h3>Mayor's Clipboard</h3>
+        <ol>
+          <li>Place paths so people can move.</li>
+          <li>Add food and drink so the crowd spends money instead of rioting politely.</li>
+          <li>Add bathrooms and trash before the park becomes a documentary.</li>
+          <li>Add parade and fireworks pieces before the finale.</li>
+          <li>Watch safety, fire risk, flow, trash, bathrooms, and money.</li>
+        </ol>
+      </div>
     </article>
   `;
 }
@@ -1960,7 +2121,7 @@ function renderPhasePanel(): void {
   const el = document.querySelector<HTMLDivElement>("#phase-panel");
   if (!el) return;
   el.innerHTML = `
-    <h1>Freedom Engine</h1>
+    <h1>${GAME_TITLE}</h1>
     <h2>${phase.title} - Weather: ${weatherDefs[state.weather].name}</h2>
     <p>${phase.body} ${weatherDefs[state.weather].body}</p>
     <div class="phase-actions">
@@ -1976,19 +2137,60 @@ function renderStats(): void {
   const el = document.querySelector<HTMLDivElement>("#stats-panel");
   if (!el) return;
   const s = state.stats;
-  const stats: [string, string | number, boolean][] = [
-    ["Money", `$${Math.round(s.money).toLocaleString()}`, s.money < 0],
-    ["Crowd", s.crowd.toLocaleString(), false],
-    ["Joy", Math.round(s.joy), s.joy < 40],
-    ["Safety", Math.round(s.safety), s.safety < 45],
-    ["Fire Risk", Math.round(s.fireRisk), s.fireRisk > 60],
-    ["Flow", Math.round(s.flow), s.flow < 42],
-    ["Trash", Math.round(s.trash), s.trash > 55],
-    ["Bathrooms", Math.round(s.bathrooms), s.bathrooms > 55],
-    ["Spectacle", Math.round(s.spectacle), false],
-    ["Chaos", Math.round(s.chaos), s.chaos > 65],
+  const stats: [string, string | number, boolean, string][] = [
+    ["Money", `$${Math.round(s.money).toLocaleString()}`, s.money < 0, "Budget remaining before the committee starts selling commemorative spoons."],
+    ["Crowd", s.crowd.toLocaleString(), false, "Citizens currently converting oxygen into opinions."],
+    ["Joy", Math.round(s.joy), s.joy < 40, "How close the park is to wholesome chaos."],
+    ["Safety", Math.round(s.safety), s.safety < 45, "How little the fire marshal is twitching."],
+    ["Fire Risk", Math.round(s.fireRisk), s.fireRisk > 60, "How spicy the sky plan has become."],
+    ["Flow", Math.round(s.flow), s.flow < 42, "Whether the crowd moves like people or a clogged parade kazoo."],
+    ["Trash", Math.round(s.trash), s.trash > 55, "How close Liberty Park is to raccoon governance."],
+    ["Bathrooms", Math.round(s.bathrooms), s.bathrooms > 55, "The thin porcelain line between civilization and revolt."],
+    ["Spectacle", Math.round(s.spectacle), false, "How much the day looks like the poster promised."],
+    ["Chaos", Math.round(s.chaos), s.chaos > 65, "Unscheduled freedom."],
   ];
-  el.innerHTML = stats.map(([label, value, danger]) => `<article class="stat ${danger ? "danger" : ""}"><span>${label}</span><b>${value}</b></article>`).join("");
+  el.innerHTML = stats
+    .map(([label, value, danger, help]) => `<article class="stat ${danger ? "danger" : ""}" title="${escapeAttr(help)}"><span>${label}</span><b>${value}</b></article>`)
+    .join("");
+}
+
+function renderAdvisorPanel(): void {
+  const el = document.querySelector<HTMLDivElement>("#advisor-panel");
+  if (!el) return;
+  const nudges = advisorNudges();
+  const tutorial =
+    currentPhase().id === "setup"
+      ? `
+        <div class="clipboard">
+          <b>Mayor's Clipboard</b>
+          <ol>
+            <li>Place paths so people can move.</li>
+            <li>Add vendors, bathrooms, trash, parade pieces, and fireworks support.</li>
+            <li>Watch safety, fire risk, flow, trash, bathrooms, and money.</li>
+          </ol>
+        </div>`
+      : "";
+  el.innerHTML = `
+    <h2>Civic Panic Meter</h2>
+    ${tutorial}
+    <ul class="nudge-list">
+      ${nudges.map((nudge) => `<li>${nudge}</li>`).join("")}
+    </ul>
+  `;
+}
+
+function advisorNudges(): string[] {
+  const s = state.stats;
+  const nudges: string[] = [];
+  if (s.bathrooms > 48) nudges.push("Bathroom pressure is rising. Add restrooms before the crowd starts writing reviews in all caps.");
+  if (s.trash > 46) nudges.push("Trash is climbing. Deploy trash service or prepare for raccoon democracy.");
+  if (s.fireRisk > 52) nudges.push("Fire risk is high. Add fire safety before the sky accountant gets involved.");
+  if (s.flow < 46) nudges.push("Flow is low. Add paths or open space so the crowd stops moving like a clogged parade kazoo.");
+  if (s.money < 3500) nudges.push("Money is low. Vendors generate revenue, assuming people can reach them.");
+  if (s.pride < 42 && currentPhase().id !== "setup") nudges.push("Parade pride is low. Add staging, route support, or floats before the parade becomes people walking with paperwork.");
+  if (s.finale < 44) nudges.push("Finale readiness is low. Fireworks need support, safety, and spectacle.");
+  if (!nudges.length) nudges.push("No active panic. This is either good planning or the calm before a municipal spreadsheet.");
+  return nudges.slice(0, 3);
 }
 
 function renderPolicyPanel(): void {
@@ -2032,19 +2234,22 @@ function renderBuildPanel(): void {
   const categoryDefs = state.selectedCategory === "tools" ? [] : defs.filter((def) => def.category === state.selectedCategory);
   el.innerHTML = `
     <h2>Build Menu</h2>
+    <p class="placement-notice">${state.placementNotice}</p>
     <div class="category-tabs">
-      ${(["paths", "vendors", "civic", "rides", "services", "fireworks", "tools"] as Category[])
+      ${(["paths", "vendors", "civic", "services", "parade", "rides", "fireworks", "tools"] as Category[])
         .map((category) => `<button class="${state.selectedCategory === category ? "active" : ""}" data-action="category" data-category="${category}">${categoryLabels[category]}</button>`)
         .join("")}
     </div>
     <div class="tool-grid">
       ${
         state.selectedCategory === "tools"
-          ? `<button class="${state.selectedTool === "bulldoze" ? "active" : ""}" data-action="tool" data-tool="bulldoze"><b>Bulldoze</b><span>Remove object, partial refund</span></button>`
+          ? `<button class="${state.selectedTool === "bulldoze" ? "active" : ""}" data-action="tool" data-tool="bulldoze"><b>TL Bulldoze</b><span>Remove object, partial refund</span><small>Use when the committee regrets geometry.</small></button>`
           : categoryDefs
               .map(
-                (def) => `<button class="${state.selectedTool === def.id ? "active" : ""}" data-action="tool" data-tool="${def.id}">
-                  <b>${def.name}</b><span>$${def.cost.toLocaleString()} - ${def.pros[0]}</span>
+                (def) => `<button class="${state.selectedTool === def.id ? "active" : ""}" data-action="tool" data-tool="${def.id}" title="${escapeAttr(describeDef(def))}">
+                  <b>${categoryIcon(def.category)} ${def.name}</b>
+                  <span>$${def.cost.toLocaleString()} - ${describeDef(def)}</span>
+                  <small>${placementRule(def)}</small>
                 </button>`,
               )
               .join("")
@@ -2077,6 +2282,29 @@ function renderSelectionPanel(): void {
   `;
 }
 
+function renderHoverTooltip(): void {
+  const el = document.querySelector<HTMLDivElement>("#hover-tooltip");
+  if (!el) return;
+  const tile = hoveredTile;
+  const screen = hoverScreen;
+  const placed = tile ? state.buildings.find((building) => building.x === tile.x && building.y === tile.y) : undefined;
+  const def = placed ? defById.get(placed.defId) : undefined;
+  if (!def || !screen || !state.started) {
+    el.classList.add("hidden");
+    return;
+  }
+  const refund = Math.round(def.cost * 0.35);
+  el.style.left = `${Math.min(window.innerWidth - 260, screen.x + 16)}px`;
+  el.style.top = `${Math.max(12, screen.y - 12)}px`;
+  el.innerHTML = `
+    <b>${categoryIcon(def.category)} ${def.name}</b>
+    <span>${categoryLabels[def.category]}</span>
+    <p>${describeDef(def)}</p>
+    <small>Upkeep $${def.upkeep}/phase - Bulldoze refund $${refund}</small>
+  `;
+  el.classList.remove("hidden");
+}
+
 function renderFinalePanel(): void {
   const el = document.querySelector<HTMLDivElement>("#finale-panel");
   if (!el) return;
@@ -2100,15 +2328,21 @@ function showEndScreen(): void {
   if (!outcome) return;
   const el = document.querySelector<HTMLDivElement>("#end-screen");
   if (!el) return;
+  const shareTitle = shareableOutcomeTitle(outcome);
+  const breakdown = scoreBreakdownRows(outcome.score);
   el.classList.remove("hidden");
   el.innerHTML = `
     <article class="end-card">
-      <h1>${outcome.archetype}</h1>
+      <p class="eyebrow">Gazette Final Edition</p>
+      <h1>${shareTitle}</h1>
       <h2>${outcome.title} - Finale Score ${outcome.score}</h2>
       <div class="score-grid">
         <article><h3>Attendance</h3><p>${state.stats.crowd.toLocaleString()} visitors</p></article>
         <article><h3>Revenue</h3><p>$${state.revenue.toLocaleString()} gross / $${Math.round(state.stats.money).toLocaleString()} ending cash</p></article>
         <article><h3>Best / Worst</h3><p>${outcome.best} / ${outcome.worst}</p></article>
+      </div>
+      <div class="breakdown-grid">
+        ${breakdown.map(([label, value]) => `<article><span>${label}</span><b>${value}</b></article>`).join("")}
       </div>
       <article class="newspaper">
         <h3>Liberty Park Gazette Final Edition</h3>
@@ -2116,10 +2350,58 @@ function showEndScreen(): void {
         <p>${outcome.quote}</p>
       </article>
       <div class="award-list">${outcome.awards.map((award) => `<span>${award}</span>`).join("")}</div>
-      <p></p>
+      <p class="copy-status" id="copy-status"></p>
+      <button data-action="copyRecap">Copy Recap</button>
       <button class="primary" data-action="new">New Festival</button>
     </article>
   `;
+}
+
+function shareableOutcomeTitle(outcome: FinaleOutcome): string {
+  const s = state.stats;
+  if (outcome.score >= 88) return "BOOMTOWN LEGEND";
+  if (s.bathrooms > 72) return "BATHROOM MATH INCIDENT";
+  if (s.fireRisk > 78 || s.chaos > 82) return "THE SKY SUED BACK";
+  if (s.marshal < 34 || s.permit > 72) return "FIRE MARSHAL SIDE-EYE";
+  if (s.pride > 68 && s.flow > 45) return "PARADE OF MOSTLY SUCCESS";
+  return outcome.score >= 58 ? "CIVICALLY ACCEPTABLE" : "FIRE MARSHAL SIDE-EYE";
+}
+
+function scoreBreakdownRows(finaleScore: number): [string, number | string][] {
+  const s = state.stats;
+  return [
+    ["Joy", Math.round(s.joy)],
+    ["Civic Pride", Math.round(s.pride)],
+    ["Spectacle", Math.round(s.spectacle)],
+    ["Safety", Math.round(s.safety)],
+    ["Flow", Math.round(s.flow)],
+    ["Cleanliness", Math.round(100 - s.trash)],
+    ["Finale Readiness", Math.round(s.finale)],
+    ["Money Remaining", `$${Math.max(0, Math.round(s.money)).toLocaleString()}`],
+    ["Chaos Penalty", `-${Math.round(s.chaos)}`],
+    ["Finale Score", finaleScore],
+  ];
+}
+
+function recapText(): string {
+  const outcome = state.finaleOutcome;
+  if (!outcome) return "";
+  const awards = outcome.awards.slice(0, 2).join(", ");
+  return `I scored ${outcome.score} in ${GAME_TITLE} with ${shareableOutcomeTitle(outcome)}, ${awards}. Crowd: ${state.stats.crowd.toLocaleString()}, Joy: ${Math.round(state.stats.joy)}, Safety: ${Math.round(state.stats.safety)}, Fire Risk: ${Math.round(state.stats.fireRisk)}.`;
+}
+
+async function copyRecap(): Promise<void> {
+  const text = recapText();
+  if (!text) return;
+  document.body.dataset.lastRecap = text;
+  try {
+    await navigator.clipboard?.writeText(text);
+    showToast("Recap copied.");
+  } catch {
+    showToast("Recap ready to copy.");
+  }
+  const status = document.querySelector<HTMLParagraphElement>("#copy-status");
+  if (status) status.textContent = text;
 }
 
 function showToast(message: string): void {
@@ -2132,6 +2414,61 @@ function showToast(message: string): void {
 
 function policySummary(): string {
   return `Budget ${state.policies.budget}, fireworks ${state.policies.fireworks}, vendors ${state.policies.vendors}, parade ${state.policies.parade}.`;
+}
+
+function describeDef(def: BuildingDef): string {
+  const custom: Partial<Record<BuildingId, string>> = {
+    hotdog: "Cheap vendor. Adds revenue and joy, but increases trash and lines.",
+    bathroom: "Reduces bathroom pressure. Boring until missing, then civilization collapses.",
+    trashCan: "Keeps Liberty Park from becoming a raccoon shareholder meeting.",
+    dumpster: "Heavy trash control for when bins start negotiating surrender.",
+    fireMarshal: "Reduces fire risk and permit pressure. Does not enjoy your trust-me-bro fireworks plan.",
+    fireCrew: "Emergency coverage for the spicy sky plan.",
+    paradeStaging: "Makes the parade feel intentional instead of people walking with paperwork.",
+    paradeRoute: "Guides civic pride through town and briefly annoys crowd flow.",
+    launchZone: "Abstract finale zone. Builds spectacle while asking safety to do math.",
+    finaleControl: "Improves finale readiness and makes the ending look planned.",
+  };
+  return custom[def.id] ?? `${def.pros[0]}. Tradeoff: ${def.cons[0].toLowerCase()}.`;
+}
+
+function placementRule(def: BuildingDef): string {
+  if (def.requiresPath) return "Rule: needs nearby path.";
+  if (def.category === "fireworks") return "Rule: keep the sky plan supported.";
+  if (def.category === "parade") return "Tip: parade pieces work best near route/path tiles.";
+  return "Rule: open grass tile.";
+}
+
+function categoryIcon(category: Category): string {
+  const icons: Record<Category, string> = {
+    paths: "PT",
+    vendors: "FD",
+    civic: "CV",
+    services: "SV",
+    parade: "PR",
+    rides: "RD",
+    fireworks: "FW",
+    tools: "TL",
+  };
+  return icons[category];
+}
+
+function categoryColor(category: Category): number {
+  const colors: Record<Category, number> = {
+    paths: 0xf1ce8a,
+    vendors: 0xffc857,
+    civic: 0x8db8ff,
+    services: 0x76d99a,
+    parade: 0xff6b65,
+    rides: 0xd88cff,
+    fireworks: 0xff9b4a,
+    tools: 0xb8c7d8,
+  };
+  return colors[category];
+}
+
+function escapeAttr(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function tileToWorldX(x: number): number {
