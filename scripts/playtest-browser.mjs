@@ -22,6 +22,11 @@ await expectVisibleText("Red, White & Boomtown");
 await expectHidden("#build-panel");
 await expectHidden("#stats-panel");
 await page.screenshot({ path: path.join(outputDir, "red-white-boomtown-title.png"), fullPage: true });
+await setViewportAndSettle(390, 844);
+await assertNoHorizontalOverflow();
+await page.screenshot({ path: path.join(outputDir, "red-white-boomtown-mobile-title.png"), fullPage: true });
+await setViewportAndSettle(1440, 900);
+await assertNoHorizontalOverflow();
 
 await page.getByRole("button", { name: "HOW THIS NONSENSE WORKS" }).click();
 await expectVisibleText("Mayor's Clipboard");
@@ -35,6 +40,11 @@ await expectVisibleText("Bathroom Pressure");
 await assertMapReady();
 await assertCanvasMounted();
 await page.screenshot({ path: path.join(outputDir, "red-white-boomtown-dashboard.png"), fullPage: true });
+await setViewportAndSettle(390, 844);
+await assertNoHorizontalOverflow();
+await page.screenshot({ path: path.join(outputDir, "red-white-boomtown-mobile-dashboard.png"), fullPage: true });
+await setViewportAndSettle(1440, 900);
+await assertNoHorizontalOverflow();
 
 await pick("Food & Vendors", "hotdog");
 await place([970, 260]);
@@ -173,6 +183,11 @@ async function assertCanvasMounted() {
     return { width: canvas.width, height: canvas.height, visible: canvas.clientWidth > 0 && canvas.clientHeight > 0 };
   });
   if (!canvasState?.visible || canvasState.width < 640 || canvasState.height < 360) throw new Error("Canvas is not mounted at a playable size.");
+}
+
+async function setViewportAndSettle(width, height) {
+  await page.setViewportSize({ width, height });
+  await page.waitForTimeout(250);
 }
 
 async function assertNoHorizontalOverflow() {

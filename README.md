@@ -107,10 +107,13 @@ not affiliated with, endorsed by, or derived from any commercial city-builder,
 theme-park, fireworks, or simulation game franchise, publisher, or trademark
 owner.
 
-## Current Limitations
+## Current Scope
 
-- Visuals are procedural placeholder shapes and labels, not final art.
-- Crowd movement is stylized and simplified.
-- Mobile/touch layout is not deeply tuned yet.
-- There is no backend, online leaderboard, multiplayer, or remote deployment in
-  this package.
+- Visuals use procedural symbolic festival models, category halos, and small
+  object details. Final custom art is intentionally left for a future asset pass.
+- Crowd movement is a stylized agent layer over aggregate festival math, tuned
+  for readable public-demo feedback rather than full individual pathfinding.
+- The layout includes desktop and compact mobile/tablet breakpoints for preview
+  and playtest screenshots.
+- There is no backend, online leaderboard, multiplayer, telemetry, or remote
+  deployment in this package.

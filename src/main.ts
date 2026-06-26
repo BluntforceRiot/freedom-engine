@@ -7,6 +7,7 @@ const GAME_SUBTITLE = "Build the Fourth. Feed the crowd. Keep the sky from suing
 const TILE_SIZE = 1;
 const MAP_W = 24;
 const MAP_H = 18;
+const SHOW_MAP_LABELS = false;
 
 type Category = "paths" | "vendors" | "civic" | "services" | "parade" | "rides" | "fireworks" | "tools";
 type PhaseId = "setup" | "afternoon" | "parade" | "evening" | "finale" | "recap";
@@ -1860,6 +1861,8 @@ function addBuildingMesh(building: PlacedBuilding): void {
   const mat = new THREE.MeshStandardMaterial({ color: def.color, roughness: 0.72 });
   const accent = new THREE.MeshStandardMaterial({ color: def.accent, roughness: 0.58 });
   const baseHeight = def.height;
+  const shadow = makeObjectShadow();
+  group.add(shadow);
   const halo = makeCategoryHalo(def.category);
   group.add(halo);
   if (def.shape === "route" || def.shape === "zone") {
@@ -1916,9 +1919,12 @@ function addBuildingMesh(building: PlacedBuilding): void {
       group.add(rack);
     }
   }
-  const label = makeLabel(`${categoryIcon(def.category)} ${shortName(def.name)}`, def.accent);
-  label.position.set(0, Math.max(0.38, baseHeight + 0.28), 0);
-  group.add(label);
+  addObjectTrim(group, def, baseHeight, accent);
+  if (SHOW_MAP_LABELS) {
+    const label = makeLabel(`${categoryIcon(def.category)} ${shortName(def.name)}`, def.accent);
+    label.position.set(0, Math.max(0.38, baseHeight + 0.28), 0);
+    group.add(label);
+  }
   group.traverse((object) => {
     if (object instanceof THREE.Mesh) {
       object.castShadow = true;
@@ -1926,6 +1932,123 @@ function addBuildingMesh(building: PlacedBuilding): void {
     }
   });
   buildingGroup.add(group);
+}
+
+function makeObjectShadow(): THREE.Mesh {
+  const geometry = new THREE.CircleGeometry(0.48, 28);
+  const material = new THREE.MeshBasicMaterial({ color: 0x06090f, transparent: true, opacity: 0.28, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.021;
+  return mesh;
+}
+
+function addObjectTrim(
+  group: THREE.Group,
+  def: BuildingDef,
+  baseHeight: number,
+  accent: THREE.MeshStandardMaterial,
+): void {
+  const paper = new THREE.MeshStandardMaterial({ color: 0xf4dfb7, roughness: 0.65 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x21170f, roughness: 0.8 });
+  const red = new THREE.MeshStandardMaterial({ color: 0xd94b45, roughness: 0.55 });
+  const blue = new THREE.MeshStandardMaterial({ color: 0x3f79c9, roughness: 0.55 });
+  const gold = new THREE.MeshStandardMaterial({ color: 0xf4c35a, roughness: 0.5 });
+
+  if (def.id === "trashCan") {
+    for (const x of [-0.18, 0.18]) {
+      const can = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.28, 10), accent);
+      can.position.set(x, 0.16, -0.08);
+      group.add(can);
+    }
+    return;
+  }
+
+  if (def.id === "dumpster") {
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.06, 0.42), dark);
+    lid.position.set(0, baseHeight + 0.07, 0);
+    group.add(lid);
+    return;
+  }
+
+  if (def.id === "bathroom" || def.id === "handwash") {
+    const door = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.34, 0.04), blue);
+    door.position.set(-0.14, Math.max(0.22, baseHeight * 0.55), -0.38);
+    const door2 = door.clone();
+    door2.position.x = 0.14;
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.05), paper);
+    stripe.position.set(0, baseHeight + 0.18, -0.38);
+    group.add(door, door2, stripe);
+    return;
+  }
+
+  if (["firstAid", "fireMarshal", "fireCrew", "security", "lostChild"].includes(def.id)) {
+    const badge = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.36, 0.055), def.id === "firstAid" ? red : gold);
+    badge.position.set(0, baseHeight + 0.13, -0.39);
+    const cross = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.1, 0.06), def.id === "firstAid" ? red : blue);
+    cross.position.set(0, baseHeight + 0.13, -0.4);
+    group.add(badge, cross);
+    return;
+  }
+
+  if (def.category === "vendors") {
+    for (const x of [-0.24, 0, 0.24]) {
+      const awning = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.38), x === 0 ? paper : accent);
+      awning.position.set(x, baseHeight + 0.21, -0.18);
+      group.add(awning);
+    }
+    const counter = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.08, 0.1), dark);
+    counter.position.set(0, Math.max(0.18, baseHeight * 0.45), -0.39);
+    group.add(counter);
+    return;
+  }
+
+  if (def.category === "parade" || def.category === "civic") {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.58, 6), dark);
+    pole.position.set(-0.32, baseHeight + 0.2, -0.18);
+    const flag = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.16, 0.035), def.category === "parade" ? red : blue);
+    flag.position.set(-0.18, baseHeight + 0.4, -0.18);
+    const crest = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.035, 6), gold);
+    crest.position.set(0.28, baseHeight + 0.16, -0.34);
+    crest.rotation.x = Math.PI / 2;
+    group.add(pole, flag, crest);
+    return;
+  }
+
+  if (def.category === "fireworks") {
+    for (const x of [-0.2, 0, 0.2]) {
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.42, 8), x === 0 ? gold : accent);
+      tube.position.set(x, baseHeight + 0.28, 0.12);
+      tube.rotation.x = x * 0.6;
+      group.add(tube);
+    }
+    return;
+  }
+
+  if (def.category === "rides") {
+    const hub = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), gold);
+    hub.position.set(0, baseHeight + 0.08, 0);
+    const armA = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.045, 0.045), accent);
+    armA.position.set(0, baseHeight + 0.08, 0);
+    const armB = armA.clone();
+    armB.rotation.y = Math.PI / 2;
+    group.add(hub, armA, armB);
+    return;
+  }
+
+  if (def.category === "paths") {
+    const pebble = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.018, 0.12), accent);
+    pebble.position.set(0.22, baseHeight + 0.04, -0.14);
+    const pebble2 = pebble.clone();
+    pebble2.position.set(-0.18, baseHeight + 0.04, 0.18);
+    group.add(pebble, pebble2);
+    return;
+  }
+
+  const marker = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.04, 6), accent);
+  marker.position.set(0, baseHeight + 0.16, -0.34);
+  marker.rotation.x = Math.PI / 2;
+  group.add(marker);
 }
 
 function makeCategoryHalo(category: Category): THREE.Mesh {
