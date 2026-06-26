@@ -31,6 +31,7 @@ await page.getByRole("button", { name: "START THE FOURTH" }).click();
 await page.waitForTimeout(1000);
 await expectVisibleText("Civic Panic Meter");
 await expectVisibleText("Build Menu");
+await expectVisibleText("Bathroom Pressure");
 await assertMapReady();
 await assertCanvasMounted();
 await page.screenshot({ path: path.join(outputDir, "red-white-boomtown-dashboard.png"), fullPage: true });
@@ -57,6 +58,7 @@ for (let i = 0; i < 4; i += 1) {
 
 await page.screenshot({ path: path.join(outputDir, "red-white-boomtown-endgame.png"), fullPage: true });
 await expectVisibleText("Liberty Park Gazette Final Edition");
+await expectVisibleText("Overall Festival Grade");
 await page.getByRole("button", { name: "Copy Recap" }).click();
 const recap = await page.evaluate(() => document.body.dataset.lastRecap ?? "");
 

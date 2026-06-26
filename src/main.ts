@@ -174,6 +174,8 @@ type PhaseBanner = {
 
 type FinaleOutcome = {
   score: number;
+  overallGrade: number;
+  headline: string;
   title: string;
   archetype: string;
   article: string;
@@ -979,7 +981,7 @@ const policyOptions: { key: keyof Policies; label: string; values: Record<string
   },
   {
     key: "services",
-    label: "Trash/Bathrooms",
+    label: "Trash/Bathroom Pressure",
     values: { minimum: "Bare minimum", adequate: "Adequate", overprepared: "Overprepared" },
   },
 ];
@@ -1307,10 +1309,12 @@ function loadGame(): void {
   try {
     state = JSON.parse(raw) as GameState;
     state.placementNotice ??= "Loaded festival plan. The clipboard is judging quietly.";
+    ensureFinaleOutcomeScoring();
     rebuildScene();
     document.querySelector("#title-screen")?.classList.toggle("hidden", state.started);
     document.querySelector("#end-screen")?.classList.toggle("hidden", !state.ended);
     renderAll();
+    if (state.ended && state.finaleOutcome) showEndScreen();
     showToast("Local festival save loaded.");
   } catch {
     showToast("Save file could not be read.");
@@ -1669,15 +1673,19 @@ function resolveFinale(): void {
   const archetype = endingArchetype(score);
   const awards = makeAwards(score);
   const bestWorst = bestAndWorst();
+  const overallGrade = overallFestivalGrade(score);
+  const headline = overallHeadline(score, overallGrade);
   state.finaleOutcome = {
     score,
+    overallGrade,
+    headline,
     title,
     archetype,
     best: bestWorst.best,
     worst: bestWorst.worst,
     awards,
     quote: makeQuote(archetype),
-    article: makeArticle(score, title, archetype, awards, bestWorst),
+    article: makeArticle(score, overallGrade, title, headline, archetype, awards, bestWorst),
   };
   state.awards = awards;
   state.ended = true;
@@ -1696,6 +1704,42 @@ function endingArchetype(score: number): string {
   if (s.chaos < 25 && s.safety > 78) return "Quiet Civic Picnic";
   if (score > 76) return "Local Legend";
   return "Carnival Boomtown";
+}
+
+function overallFestivalGrade(finaleScore: number): number {
+  const s = state.stats;
+  const moneyScore = clamp((Math.max(0, s.money) / 18500) * 100, 0, 100);
+  return clamp(
+    Math.round(
+      s.joy * 0.14 +
+        s.safety * 0.12 +
+        s.flow * 0.11 +
+        (100 - s.trash) * 0.1 +
+        (100 - s.bathrooms) * 0.1 +
+        (100 - s.chaos) * 0.1 +
+        (100 - s.fireRisk) * 0.1 +
+        moneyScore * 0.06 +
+        s.pride * 0.09 +
+        s.spectacle * 0.06 +
+        finaleScore * 0.02,
+    ),
+    0,
+    100,
+  );
+}
+
+function overallHeadline(finaleScore: number, overallGrade: number): string {
+  const s = state.stats;
+  const messy = s.joy < 42 || s.trash > 58 || s.bathrooms > 58 || s.chaos > 62;
+  if (finaleScore >= 84 && messy) return "PYRO LEGEND, CIVIC MESS";
+  if (overallGrade >= 88 && !messy && s.fireRisk < 48) return "BOOMTOWN LEGEND";
+  if (s.bathrooms > 72) return "BATHROOM MATH INCIDENT";
+  if (s.fireRisk > 78 || s.chaos > 82) return "THE SKY SUED BACK";
+  if (s.trash > 70 || s.chaos > 70) return "CIVIC MESS WITH SPARKLES";
+  if (s.pride > 68 && s.flow > 45 && overallGrade >= 62) return "PARADE OF MOSTLY SUCCESS";
+  if (overallGrade >= 72) return "CIVICALLY ACCEPTABLE";
+  if (overallGrade < 45) return "COMMITTEE HEARING MATERIAL";
+  return "FIRE MARSHAL SIDE-EYE";
 }
 
 function makeAwards(score: number): string[] {
@@ -1746,8 +1790,26 @@ function makeQuote(archetype: string): string {
   return quotes[archetype] ?? '"The town will be discussing the layout for a while," said a witness.';
 }
 
-function makeArticle(score: number, finaleTitle: string, archetype: string, awards: string[], bestWorst: { best: string; worst: string }): string {
-  return `Liberty Park welcomed ${state.stats.crowd.toLocaleString()} visitors and finished with $${Math.max(0, Math.round(state.stats.money)).toLocaleString()} in the town account after a ${finaleTitle.toLowerCase()} finale. The festival's strongest category was ${bestWorst.best}, while ${bestWorst.worst} supplied the committee's next meeting agenda. Analysts classified the day as "${archetype}." Awards: ${awards.join(", ")}.`;
+function makeArticle(
+  score: number,
+  overallGrade: number,
+  finaleTitle: string,
+  headline: string,
+  archetype: string,
+  awards: string[],
+  bestWorst: { best: string; worst: string },
+): string {
+  return `Liberty Park welcomed ${state.stats.crowd.toLocaleString()} visitors and finished with $${Math.max(0, Math.round(state.stats.money)).toLocaleString()} in the town account. Finale Result: ${finaleTitle} (${score}). Overall Festival Grade: ${overallGrade}. Festival Headline: "${headline}." Festival Archetype: "${archetype}." Strongest category: ${bestWorst.best}. Weakest category: ${bestWorst.worst}. Awards: ${awards.join(", ")}.`;
+}
+
+function ensureFinaleOutcomeScoring(): void {
+  const outcome = state.finaleOutcome;
+  if (!outcome) return;
+  const overallGrade = outcome.overallGrade ?? overallFestivalGrade(outcome.score);
+  const headline = outcome.headline ?? overallHeadline(outcome.score, overallGrade);
+  outcome.overallGrade = overallGrade;
+  outcome.headline = headline;
+  outcome.article = makeArticle(outcome.score, overallGrade, outcome.title, headline, outcome.archetype, outcome.awards, bestAndWorst());
 }
 
 function currentPhase(): { id: PhaseId; title: string; body: string } {
@@ -1767,7 +1829,7 @@ function makePhaseBanner(phase: { id: PhaseId; title: string; body: string }, be
     deltaLine("Crowd", state.stats.crowd - before.crowd, "visitors"),
     deltaLine("Money", state.stats.money - before.money, "budget"),
     deltaLine("Trash", state.stats.trash - before.trash, "pressure"),
-    deltaLine("Bathrooms", state.stats.bathrooms - before.bathrooms, "pressure"),
+    deltaLine("Bathroom Pressure", state.stats.bathrooms - before.bathrooms, "pressure"),
     deltaLine("Fire Risk", state.stats.fireRisk - before.fireRisk, "risk"),
     deltaLine("Flow", state.stats.flow - before.flow, "flow"),
   ].filter(Boolean) as string[];
@@ -2094,7 +2156,7 @@ function renderTitle(): void {
       <p>Design a one-day Fourth of July festival in Liberty Park. Place vendors, paths, parade pieces, bathrooms, trash service, safety, parking, and fireworks infrastructure. Keep the crowd happy, the fire marshal calm, and the finale loud enough to be remembered for mostly legal reasons.</p>
       <div class="title-grid">
         <article><h3>Build</h3><p>Paths, stands, rides, parade pieces, civic services, and abstract fireworks infrastructure.</p></article>
-        <article><h3>Balance</h3><p>Money, trash, bathrooms, safety, fire risk, flow, traffic, spectacle, and chaos.</p></article>
+        <article><h3>Balance</h3><p>Money, trash, bathroom pressure, safety, fire risk, flow, traffic, spectacle, and chaos.</p></article>
         <article><h3>Finish</h3><p>Reach the finale, survive the Gazette, and earn a scorecard worth bragging about.</p></article>
       </div>
       <div class="title-actions">
@@ -2109,7 +2171,7 @@ function renderTitle(): void {
           <li>Add food and drink so the crowd spends money instead of rioting politely.</li>
           <li>Add bathrooms and trash before the park becomes a documentary.</li>
           <li>Add parade and fireworks pieces before the finale.</li>
-          <li>Watch safety, fire risk, flow, trash, bathrooms, and money.</li>
+          <li>Watch safety, fire risk, flow, trash, bathroom pressure, and money.</li>
         </ol>
       </div>
     </article>
@@ -2145,7 +2207,7 @@ function renderStats(): void {
     ["Fire Risk", Math.round(s.fireRisk), s.fireRisk > 60, "How spicy the sky plan has become."],
     ["Flow", Math.round(s.flow), s.flow < 42, "Whether the crowd moves like people or a clogged parade kazoo."],
     ["Trash", Math.round(s.trash), s.trash > 55, "How close Liberty Park is to raccoon governance."],
-    ["Bathrooms", Math.round(s.bathrooms), s.bathrooms > 55, "The thin porcelain line between civilization and revolt."],
+    ["Bathroom Pressure", Math.round(s.bathrooms), s.bathrooms > 55, "Line pressure for restrooms. Lower is better unless the committee wants a revolt."],
     ["Spectacle", Math.round(s.spectacle), false, "How much the day looks like the poster promised."],
     ["Chaos", Math.round(s.chaos), s.chaos > 65, "Unscheduled freedom."],
   ];
@@ -2166,7 +2228,7 @@ function renderAdvisorPanel(): void {
           <ol>
             <li>Place paths so people can move.</li>
             <li>Add vendors, bathrooms, trash, parade pieces, and fireworks support.</li>
-            <li>Watch safety, fire risk, flow, trash, bathrooms, and money.</li>
+            <li>Watch safety, fire risk, flow, trash, bathroom pressure, and money.</li>
           </ol>
         </div>`
       : "";
@@ -2324,22 +2386,22 @@ function renderFinalePanel(): void {
 
 function showEndScreen(): void {
   if (!state.finaleOutcome) resolveFinale();
+  ensureFinaleOutcomeScoring();
   const outcome = state.finaleOutcome;
   if (!outcome) return;
   const el = document.querySelector<HTMLDivElement>("#end-screen");
   if (!el) return;
-  const shareTitle = shareableOutcomeTitle(outcome);
   const breakdown = scoreBreakdownRows(outcome.score);
   el.classList.remove("hidden");
   el.innerHTML = `
     <article class="end-card">
       <p class="eyebrow">Gazette Final Edition</p>
-      <h1>${shareTitle}</h1>
-      <h2>${outcome.title} - Finale Score ${outcome.score}</h2>
+      <h1>${outcome.headline}</h1>
+      <h2>Overall Festival Grade ${outcome.overallGrade} - Finale Score ${outcome.score}</h2>
       <div class="score-grid">
         <article><h3>Attendance</h3><p>${state.stats.crowd.toLocaleString()} visitors</p></article>
         <article><h3>Revenue</h3><p>$${state.revenue.toLocaleString()} gross / $${Math.round(state.stats.money).toLocaleString()} ending cash</p></article>
-        <article><h3>Best / Worst</h3><p>${outcome.best} / ${outcome.worst}</p></article>
+        <article><h3>Finale / Archetype</h3><p>${outcome.title} / ${outcome.archetype}</p></article>
       </div>
       <div class="breakdown-grid">
         ${breakdown.map(([label, value]) => `<article><span>${label}</span><b>${value}</b></article>`).join("")}
@@ -2357,25 +2419,18 @@ function showEndScreen(): void {
   `;
 }
 
-function shareableOutcomeTitle(outcome: FinaleOutcome): string {
-  const s = state.stats;
-  if (outcome.score >= 88) return "BOOMTOWN LEGEND";
-  if (s.bathrooms > 72) return "BATHROOM MATH INCIDENT";
-  if (s.fireRisk > 78 || s.chaos > 82) return "THE SKY SUED BACK";
-  if (s.marshal < 34 || s.permit > 72) return "FIRE MARSHAL SIDE-EYE";
-  if (s.pride > 68 && s.flow > 45) return "PARADE OF MOSTLY SUCCESS";
-  return outcome.score >= 58 ? "CIVICALLY ACCEPTABLE" : "FIRE MARSHAL SIDE-EYE";
-}
-
 function scoreBreakdownRows(finaleScore: number): [string, number | string][] {
   const s = state.stats;
+  const overall = state.finaleOutcome?.overallGrade ?? overallFestivalGrade(finaleScore);
   return [
+    ["Overall Grade", overall],
     ["Joy", Math.round(s.joy)],
     ["Civic Pride", Math.round(s.pride)],
     ["Spectacle", Math.round(s.spectacle)],
     ["Safety", Math.round(s.safety)],
     ["Flow", Math.round(s.flow)],
     ["Cleanliness", Math.round(100 - s.trash)],
+    ["Bathroom Pressure", Math.round(s.bathrooms)],
     ["Finale Readiness", Math.round(s.finale)],
     ["Money Remaining", `$${Math.max(0, Math.round(s.money)).toLocaleString()}`],
     ["Chaos Penalty", `-${Math.round(s.chaos)}`],
@@ -2387,7 +2442,7 @@ function recapText(): string {
   const outcome = state.finaleOutcome;
   if (!outcome) return "";
   const awards = outcome.awards.slice(0, 2).join(", ");
-  return `I scored ${outcome.score} in ${GAME_TITLE} with ${shareableOutcomeTitle(outcome)}, ${awards}. Crowd: ${state.stats.crowd.toLocaleString()}, Joy: ${Math.round(state.stats.joy)}, Safety: ${Math.round(state.stats.safety)}, Fire Risk: ${Math.round(state.stats.fireRisk)}.`;
+  return `I earned Overall Grade ${outcome.overallGrade} and Finale Score ${outcome.score} in ${GAME_TITLE} with ${outcome.headline}, ${awards}. Crowd: ${state.stats.crowd.toLocaleString()}, Joy: ${Math.round(state.stats.joy)}, Safety: ${Math.round(state.stats.safety)}, Fire Risk: ${Math.round(state.stats.fireRisk)}.`;
 }
 
 async function copyRecap(): Promise<void> {
@@ -2418,18 +2473,59 @@ function policySummary(): string {
 
 function describeDef(def: BuildingDef): string {
   const custom: Partial<Record<BuildingId, string>> = {
-    hotdog: "Cheap vendor. Adds revenue and joy, but increases trash and lines.",
-    bathroom: "Reduces bathroom pressure. Boring until missing, then civilization collapses.",
-    trashCan: "Keeps Liberty Park from becoming a raccoon shareholder meeting.",
-    dumpster: "Heavy trash control for when bins start negotiating surrender.",
-    fireMarshal: "Reduces fire risk and permit pressure. Does not enjoy your trust-me-bro fireworks plan.",
-    fireCrew: "Emergency coverage for the spicy sky plan.",
-    paradeStaging: "Makes the parade feel intentional instead of people walking with paperwork.",
-    paradeRoute: "Guides civic pride through town and briefly annoys crowd flow.",
-    launchZone: "Abstract finale zone. Builds spectacle while asking safety to do math.",
-    finaleControl: "Improves finale readiness and makes the ending look planned.",
+    path: "Improves flow. Low cost.",
+    serviceLane: "Boosts supply. Adds utility.",
+    gate: "Handles arrivals. Adds pride.",
+    parking: "Adds crowd access. Hurts charm.",
+    shuttle: "Cuts traffic. Costs upkeep.",
+    generator: "Adds power. Adds noise.",
+    lightTower: "Safer nights. Adds heat.",
+    water: "Cools crowd. Costs upkeep.",
+    tables: "Joy + food comfort. Uses space.",
+    viewing: "Finale viewing. Needs paths.",
+    shade: "Cuts heat. Adds comfort.",
+    info: "Helps flow. Boosts pride.",
+    hotdog: "Revenue + joy. Adds trash.",
+    funnelCake: "Big revenue. More trash.",
+    lemonade: "Cools crowd. Modest revenue.",
+    iceCream: "Joy + cooling. Adds lines.",
+    bbq: "High revenue. Adds heat.",
+    flagStand: "Boosts pride. Small draw.",
+    souvenir: "Revenue + pride. Adds clutter.",
+    raffle: "Raises funds. Modest joy.",
+    historyBooth: "Pride + education. Low draw.",
+    dunkTank: "Joy + spectacle. Adds chaos.",
+    ringToss: "Cheap fun. Small draw.",
+    bounceHouse: "Big joy. Needs safety.",
+    carousel: "Steady joy. Costs upkeep.",
+    ferrisWheel: "Spectacle + draw. Big cost.",
+    spinRide: "Joy spike. Adds chaos.",
+    musicStage: "Draws crowd. Adds noise.",
+    paradeStaging: "Boosts pride. Uses space.",
+    paradeRoute: "Boosts pride. Hurts flow.",
+    veteransFloat: "Pride boost. Needs parade.",
+    fireTruckFloat: "Pride + safety. Needs route.",
+    classicCars: "Pride + draw. Adds traffic.",
+    bathroom: "Cuts bathroom pressure. Costs upkeep.",
+    trashCan: "Cuts trash. Keeps pride intact.",
+    dumpster: "Cuts major trash. Costs space.",
+    handwash: "Cuts pressure. Boosts safety.",
+    firstAid: "Boosts safety. Costs upkeep.",
+    fireMarshal: "Cuts fire risk and permits.",
+    fireCrew: "Cuts fire risk. Costs upkeep.",
+    security: "Cuts chaos. Costs upkeep.",
+    lostChild: "Boosts safety. Helps trust.",
+    maintenance: "Keeps flow steady. Costs upkeep.",
+    supplyDepot: "Boosts supply. Uses space.",
+    volunteer: "Helps flow. Lowers chaos.",
+    fireworksVendor: "Revenue + spectacle. Adds risk.",
+    sparklerStand: "Joy + spectacle. Adds risk.",
+    launchZone: "Finale required. Adds fire risk.",
+    safetyBarrier: "Cuts risk. Limits flow.",
+    finaleControl: "Finale readiness. Needs planning.",
+    grandFinaleRack: "Huge spectacle. High risk.",
   };
-  return custom[def.id] ?? `${def.pros[0]}. Tradeoff: ${def.cons[0].toLowerCase()}.`;
+  return custom[def.id] ?? `${def.pros[0]}. ${def.cons[0]}.`;
 }
 
 function placementRule(def: BuildingDef): string {

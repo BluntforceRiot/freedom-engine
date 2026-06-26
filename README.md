@@ -57,15 +57,17 @@ npm run playtest
 
 - **Crowd flow**: animated crowd dots and aggregate flow calculations respond to
   paths, routes, bottlenecks, parking, and crowd scale.
-- **Demand and capacity**: food, bathrooms, trash, viewing zones, and attractions
-  are compared against crowd demand each phase.
+- **Demand and capacity**: food, restroom capacity, trash, viewing zones, and
+  attractions are compared against crowd demand each phase.
 - **Policies**: budget, fireworks enforcement, vendor mix, parade ambition,
   security style, and service level modify the sim.
 - **Events**: local-radio and Gazette blurbs apply effects such as heat waves,
   stockouts, fire marshal warnings, parking gridlock, and parade detours.
 - **Finale scoring**: spectacle, readiness, viewing, safety, fire marshal
-  confidence, fire risk, permit pressure, weather, and chaos determine the final
-  outcome.
+  confidence, fire risk, permit pressure, weather, and chaos determine the
+  fireworks result. The final headline uses an Overall Festival Grade that also
+  weighs joy, flow, cleanliness, bathroom pressure, money, civic pride, and
+  chaos.
 
 ## Competition Submission Blurb
 
